@@ -1,0 +1,203 @@
+version: "3.9"
+
+services: 
+  postgres-auth:
+    image: postgres:16-alpine        # use official PostgreSQL image, Alpine = small
+    environment:
+      POSTGRES_DB:       pokeshop_auth      # creates this database on startup
+      POSTGRES_USER:     postgres           # username
+      POSTGRES_PASSWORD: localpassword      # password (fine for local dev)
+    ports:
+      - "5433:5432"    # YOUR_LAPTOP:5433 → CONTAINER:5432
+                       # (5432 is PostgreSQL's default port)
+    volumes:
+      - pgdata-auth:/var/lib/postgresql/data  # persist data so it survives restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]  # check if postgres is accepting connections
+      interval: 10s   # check every 10 seconds
+      timeout: 5s     # fail if no response in 5 seconds
+      retries: 5      # mark unhealthy after 5 failures
+
+  postgres-pokemon:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       pokeshop_pokemon
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: localpassword
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata-pokemon:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-favorites:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       pokeshop_favorites
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: localpassword
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata-favorites:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"    # standard Redis port
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]  # redis responds "PONG" if healthy
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181   # port Kafka uses to talk to ZooKeeper
+      ZOOKEEPER_TICK_TIME:   2000   # heartbeat interval in milliseconds
+    volumes:
+      - zoodata:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on: [zookeeper]   # don't start Kafka until ZooKeeper is running
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1                          # unique ID for this broker
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181     # where to find ZooKeeper
+
+      # Two listeners — this is important:
+      # PLAINTEXT      = for traffic INSIDE Docker network (container → container)
+      # PLAINTEXT_HOST = for traffic from YOUR LAPTOP (outside Docker)
+      KAFKA_ADVERTISED_LISTENERS:           PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME:     PLAINTEXT
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1   # only 1 broker locally, so replication = 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"     # automatically create topics when first used
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+  
+  sonarqube:
+    image: sonarqube:community
+    ports:
+      - "9000:9000"
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"  # skip startup checks that fail in Docker
+    volumes:
+      - sonardata:/opt/sonarqube/data
+      - sonarlogs:/opt/sonarqube/logs
+
+  auth-service:
+    build: ./services/auth-service   # build from Dockerfile in this folder
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV:    development
+      PORT:        3001
+      DB_HOST:     postgres-auth     # container name, not localhost!
+      DB_PORT:     5432              # inside Docker, postgres is on 5432
+      DB_NAME:     pokeshop_auth
+      DB_USER:     postgres
+      DB_PASSWORD: localpassword
+      JWT_SECRET:  local-dev-secret-at-least-32-characters
+    depends_on:
+      postgres-auth:
+        condition: service_healthy   # wait until postgres passes its healthcheck
+
+  pokemon-service:
+    build: ./services/pokemon-service
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV:      development
+      PORT:          3002
+      DB_HOST:       postgres-pokemon
+      DB_PORT:       5432
+      DB_NAME:       pokeshop_pokemon
+      DB_USER:       postgres
+      DB_PASSWORD:   localpassword
+      REDIS_HOST:    redis           # container name for Redis
+      REDIS_PORT:    6379
+      KAFKA_BROKERS: kafka:29092     # internal Docker port (not 9092)
+    depends_on:
+      postgres-pokemon:
+        condition: service_healthy
+      redis:
+        condition: service_healthy   # wait for Redis too
+
+  favorites-service:
+    build: ./services/favorites-service
+    ports:
+      - "3003:3003"
+    environment:
+      NODE_ENV:      development
+      PORT:          3003
+      DB_HOST:       postgres-favorites
+      DB_PORT:       5432
+      DB_NAME:       pokeshop_favorites
+      DB_USER:       postgres
+      DB_PASSWORD:   localpassword
+      JWT_SECRET:    local-dev-secret-at-least-32-characters
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      postgres-favorites:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend           # Dockerfile is here
+      args:                         # these become ARG in the Dockerfile
+        VITE_AUTH_URL:      http://localhost:3001
+        VITE_POKEMON_URL:   http://localhost:3002
+        VITE_FAVORITES_URL: http://localhost:3003
+    ports:
+      - "3000:80"    # access the app at http://localhost:3000
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      # mounts your local config file into the container
+      # this tells Prometheus where to find the /metrics endpoints
+      - ./monitoring/prometheus-local.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3100:3000"    # Grafana runs on 3000 internally, map to 3100 locally
+                       # (3000 is already taken by the frontend)
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin   # login password for Grafana UI
+    volumes:
+      - grafana-storage:/var/lib/grafana  # persist dashboards between restarts
+
+volumes:
+  pgdata-auth:      {}
+  pgdata-pokemon:   {}
+  pgdata-favorites: {}
+  redisdata:        {}
+  zoodata:          {}
+  kafkadata:        {}
+  sonardata:        {}
+  sonarlogs:        {}
+  grafana-storage:  {}
