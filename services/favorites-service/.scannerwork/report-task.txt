@@ -1,0 +1,6 @@
+projectKey=pokeshop-favorites-service
+serverUrl=http://localhost:9000
+serverVersion=26.3.0.120487
+dashboardUrl=http://localhost:9000/dashboard?id=pokeshop-favorites-service
+ceTaskId=507aa65e-c92e-41e7-a1f4-cb81d001c0aa
+ceTaskUrl=http://localhost:9000/api/ce/task?id=507aa65e-c92e-41e7-a1f4-cb81d001c0aa
