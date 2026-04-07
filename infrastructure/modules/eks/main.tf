@@ -23,7 +23,7 @@ resource "aws_iam_role_policy_attachment" "cluster" {
 resource "aws_eks_cluster" "main" {
   name     = "pokeshop"
   role_arn = aws_iam_role.cluster.arn
-  version  = "1.29"
+  version  = "1.32"
   vpc_config {
     subnet_ids              = var.private_subnet_ids
     endpoint_private_access = true

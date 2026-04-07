@@ -33,7 +33,7 @@ resource "aws_msk_configuration" "main" {
 resource "aws_msk_cluster" "main" {
   cluster_name           = "pokeshop-${var.env}"
   kafka_version          = "3.5.1"
-  number_of_broker_nodes = var.env == "prod" ? 3 : 2
+  number_of_broker_nodes = 2
 
   broker_node_group_info {
     instance_type   = var.broker_instance_type

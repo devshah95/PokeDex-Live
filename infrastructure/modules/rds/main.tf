@@ -32,7 +32,7 @@ resource "random_password" "db" {
 resource "aws_db_instance" "main" {
   identifier             = "pokeshop-${var.env}-${var.service}"
   engine                 = "postgres"
-  engine_version         = "16.1"
+  engine_version         = "16.6"
   instance_class         = var.instance_class
 
   db_name                = "pokeshop_${var.service}"
