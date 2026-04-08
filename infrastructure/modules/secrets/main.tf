@@ -5,6 +5,7 @@ locals {
 resource "aws_secretsmanager_secret" "db" {
   for_each = toset(local.services)
   name     = "pokeshop/${var.env}/${each.value}-db"
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "db_auth" {
@@ -50,6 +51,7 @@ resource "random_password" "jwt" {
 
 resource "aws_secretsmanager_secret" "jwt" {
   name = "pokeshop/${var.env}/jwt-secret"
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "jwt" {
@@ -62,6 +64,7 @@ resource "aws_secretsmanager_secret_version" "jwt" {
 
 resource "aws_secretsmanager_secret" "redis" {
   name = "pokeshop/${var.env}/redis"
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "redis" {
@@ -75,6 +78,7 @@ resource "aws_secretsmanager_secret_version" "redis" {
 
 resource "aws_secretsmanager_secret" "kafka" {
   name = "pokeshop/${var.env}/kafka"
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "kafka" {

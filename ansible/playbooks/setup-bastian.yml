@@ -1,0 +1,73 @@
+- name: Configure PokéDex Live Bastion Host
+  hosts: bastion
+  become: true
+  vars:
+    aws_region: "us-east-2"
+    cluster_name: "pokeshop"
+  tasks:
+    - name: Update all packages
+      apt: update_cache=yes upgrade=dist
+
+    - name: Install base tools
+      apt:
+        name:
+          - curl
+          - unzip
+          - git
+          - jq
+          - postgresql-client
+          - python3-pip
+          - nodejs
+          - npm
+        state: present
+
+    - name: Install AWS CLI v2
+      shell: |
+        curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+        unzip -q /tmp/awscliv2.zip -d /tmp/
+        /tmp/aws/install
+      args:
+        creates: /usr/local/bin/aws
+
+    - name: Install kubectl
+      get_url:
+        url: "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+
+    - name: Install Helm
+      shell: curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+    - name: Install ArgoCD CLI
+      get_url:
+        url: "https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64"
+        dest: /usr/local/bin/argocd
+        mode: '0755'
+
+    - name: Configure kubeconfig
+      become_user: ubuntu
+      shell: aws eks update-kubeconfig --region {{ aws_region }} --name {{ cluster_name }}
+      environment:
+        HOME: /home/ubuntu
+        AWS_DEFAULT_REGION: "{{ aws_region }}"
+
+    - name: OS hardening — disable root SSH login
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: restart sshd
+
+    - name: Verify cluster access
+      become_user: ubuntu
+      shell: kubectl get nodes
+      register: nodes
+
+    - debug:
+        msg: "{{ nodes.stdout_lines }}"
+
+  handlers:
+    - name: restart sshd
+      service: name=sshd state=restarted
