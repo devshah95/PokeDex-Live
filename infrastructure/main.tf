@@ -294,3 +294,13 @@ resource "aws_iam_instance_profile" "bastion" {
   name = "pokeshop-bastion-profile"
   role = aws_iam_role.bastion.name
 }
+
+resource "aws_security_group_rule" "bastion_to_eks" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.bastion.id
+  security_group_id        = module.eks.cluster_security_group_id
+  description              = "Allow bastion to reach EKS API server"
+}
