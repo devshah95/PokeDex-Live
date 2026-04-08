@@ -11,6 +11,7 @@ resource "aws_route53_record" "cert_validation" {
   for_each = {
     for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => dvo
   }
+  allow_overwrite = true 
   zone_id = data.aws_route53_zone.main.zone_id
   name    = each.value.resource_record_name
   type    = each.value.resource_record_type
