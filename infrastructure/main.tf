@@ -97,10 +97,8 @@ resource "aws_instance" "bastion" {
   vpc_security_group_ids      = [aws_security_group.bastion.id]
   key_name                    = aws_key_pair.bastion.key_name
   associate_public_ip_address = true
-
-  tags = {
-    Name = "pokeshop-bastion"
-  }
+  iam_instance_profile        = aws_iam_instance_profile.bastion.name  ← add this
+  tags = { Name = "pokeshop-bastion" }
 }
 
 output "bastion_ip" {
@@ -268,4 +266,31 @@ module "alb" {
   vpc_id            = module.vpc.vpc_id
   public_subnet_ids = module.vpc.public_subnet_ids
   acm_cert_arn      = module.route53.cert_arn
+}
+
+resource "aws_iam_role" "bastion" {
+  name = "pokeshop-bastion-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "bastion_eks" {
+  role       = aws_iam_role.bastion.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "bastion_admin" {
+  role       = aws_iam_role.bastion.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+resource "aws_iam_instance_profile" "bastion" {
+  name = "pokeshop-bastion-profile"
+  role = aws_iam_role.bastion.name
 }
