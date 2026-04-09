@@ -6,8 +6,8 @@ resource "aws_security_group" "rds" {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [var.eks_node_sg_id]
-    description     = "PostgreSQL from EKS nodes only - never from internet"
+    security_groups = [var.eks_node_sg_id, var.bastion_sg_id]
+    description     = "PostgreSQL from EKS nodes and bastion"
   }
 
   egress {

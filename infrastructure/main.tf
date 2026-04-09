@@ -107,27 +107,27 @@ output "bastion_ip" {
 
 # ── RDS — 6 instances (3 services × 2 environments) ───────────────────────
 module "rds_dev" {
-  for_each = toset(local.services)
-  source   = "./modules/rds"
-
+  for_each           = toset(local.services)
+  source             = "./modules/rds"
   env                = "dev"
   service            = each.value
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
   eks_node_sg_id     = module.eks.node_security_group_id
+  bastion_sg_id      = aws_security_group.bastion.id
   instance_class     = "db.t3.micro"
   multi_az           = false
 }
 
 module "rds_prod" {
-  for_each = toset(local.services)
-  source   = "./modules/rds"
-
+  for_each           = toset(local.services)
+  source             = "./modules/rds"
   env                = "prod"
   service            = each.value
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
   eks_node_sg_id     = module.eks.node_security_group_id
+  bastion_sg_id      = aws_security_group.bastion.id
   instance_class     = "db.t3.small"
   multi_az           = true
 }
