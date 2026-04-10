@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pokemon-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pokemon-service
+  template:
+    metadata:
+      labels:
+        app: pokemon-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3002"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: pokeshop-sa
+      containers:
+      - name: pokemon-service
+        image: 704225640908.dkr.ecr.us-east-2.amazonaws.com/pokeshop-pokemon-service:latest
+        ports:
+        - containerPort: 3002
+        envFrom:
+        - configMapRef:
+            name: pokeshop-config
+        env:
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: pokemon-secrets
+              key: db_host
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: pokemon-secrets
+              key: db_user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pokemon-secrets
+              key: db_password
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: pokemon-secrets
+              key: db_name
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: shared-secrets
+              key: redis_host
+        - name: KAFKA_BROKERS
+          valueFrom:
+            secretKeyRef:
+              name: shared-secrets
+              key: kafka_brokers
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 10
+          periodSeconds: 5
