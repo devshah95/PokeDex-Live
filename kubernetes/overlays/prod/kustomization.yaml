@@ -1,0 +1,61 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- namespace.yaml
+- configmap.yaml
+- hpa.yaml
+- ../../base/auth
+- ../../base/pokemon
+- ../../base/favorites
+- ../../base/frontend
+- ../../base/httproute-api.yaml
+- ../../base/httproute-frontend.yaml
+
+namespace: pokeshop-prod
+
+images:
+- name: 704225640908.dkr.ecr.us-east-2.amazonaws.com/pokeshop-auth-service
+  newTag: latest
+- name: 704225640908.dkr.ecr.us-east-2.amazonaws.com/pokeshop-pokemon-service
+  newTag: latest
+- name: 704225640908.dkr.ecr.us-east-2.amazonaws.com/pokeshop-favorites-service
+  newTag: latest
+- name: 704225640908.dkr.ecr.us-east-2.amazonaws.com/pokeshop-frontend
+  newTag: latest
+
+patches:
+# Patch ServiceAccount with prod IRSA role ARN
+- patch: |-
+    - op: replace
+      path: /metadata/annotations/eks.amazonaws.com~1role-arn
+      value: arn:aws:iam::704225640908:role/pokeshop-prod-pod-role
+  target:
+    kind: ServiceAccount
+    name: pokeshop-sa
+
+# Prod uses 2 replicas minimum for high availability
+- patch: |-
+    - op: replace
+      path: /spec/replicas
+      value: 2
+  target:
+    kind: Deployment
+
+# Prod API hostname — uses the apex api subdomain
+- patch: |-
+    - op: replace
+      path: /spec/hostnames/0
+      value: api.devopswithdev.com
+  target:
+    kind: HTTPRoute
+    name: api-routes
+
+# Prod frontend hostname — uses the apex domain
+- patch: |-
+    - op: replace
+      path: /spec/hostnames/0
+      value: devopswithdev.com
+  target:
+    kind: HTTPRoute
+    name: frontend-route

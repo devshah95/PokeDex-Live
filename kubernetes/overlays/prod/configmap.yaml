@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pokeshop-config
+  namespace: pokeshop-prod
+data:
+  APP_ENV: "production"
+  LOG_LEVEL: "warning"
+  NODE_ENV: "production"
+  PORT_AUTH: "3001"
+  PORT_POKEMON: "3002"
+  PORT_FAVORITES: "3003"
