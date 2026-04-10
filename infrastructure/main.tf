@@ -1,28 +1,30 @@
 terraform {
-  required_version = ">= 1.7.0"
-
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = ">= 5.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = ">= 3.0"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = ">= 4.0"
-    }
+  aws = {
+    source  = "hashicorp/aws"
+    version = ">= 5.0"
   }
 
-  backend "s3" {
-    bucket       = "pokeshop-tfstate-704225640908"
-    key          = "pokeshop/terraform.tfstate"
-    region       = "us-east-2"
-    use_lockfile = true
-    encrypt      = true
+  random = {
+    source  = "hashicorp/random"
+    version = ">= 3.0"
   }
+
+  tls = {
+    source  = "hashicorp/tls"
+    version = ">= 4.0"
+  }
+
+  helm = {
+    source  = "hashicorp/helm"
+    version = ">= 2.10"
+  }
+
+  null = {
+    source  = "hashicorp/null"
+    version = ">= 3.0"
+  }
+}
 }
 
 provider "aws" {
@@ -303,4 +305,82 @@ resource "aws_security_group_rule" "bastion_to_eks" {
   source_security_group_id = aws_security_group.bastion.id
   security_group_id        = module.eks.cluster_security_group_id
   description              = "Allow bastion to reach EKS API server"
+}
+
+resource "null_resource" "gateway_api_crds" {
+  provisioner "local-exec" {
+    command = "kubectl apply -f ${path.module}/../kubernetes/base/gateway-api-crds.yaml"
+  }
+
+  # Re-run if the CRDs file changes
+  triggers = {
+    crds_hash = filemd5("${path.module}/../kubernetes/base/gateway-api-crds.yaml")
+  }
+
+  depends_on = [module.eks]
+}
+
+provider "helm" {
+  kubernetes = {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_ca_certificate)
+    exec = {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    }
+  }
+}
+
+# IAM role for the Gateway API controller pod (IRSA)
+resource "aws_iam_role" "gateway_controller" {
+  name = "pokeshop-gateway-controller"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${module.eks.oidc_issuer}"
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${module.eks.oidc_issuer}:sub" = "system:serviceaccount:aws-application-networking-system:aws-gateway-controller"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "gateway_controller" {
+  role       = aws_iam_role.gateway_controller.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+# Helm release
+resource "helm_release" "aws_gateway_controller" {
+  name             = "aws-gateway-controller"
+  repository       = "oci://public.ecr.aws/aws-application-networking-k8s"
+  chart            = "aws-gateway-controller-chart"
+  version          = "v1.0.6"
+  namespace        = "aws-application-networking-system"
+  create_namespace = true
+
+  values = [jsonencode({
+    aws = {
+      region = "us-east-2"
+    }
+    serviceAccount = {
+      annotations = {
+        "eks.amazonaws.com/role-arn" = aws_iam_role.gateway_controller.arn
+      }
+    }
+  })]
+
+  depends_on = [
+    module.eks,
+    null_resource.gateway_api_crds,
+    aws_iam_role_policy_attachment.gateway_controller
+  ]
 }
