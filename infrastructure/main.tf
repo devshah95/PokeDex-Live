@@ -384,3 +384,105 @@ resource "helm_release" "aws_gateway_controller" {
     aws_iam_role_policy_attachment.gateway_controller
   ]
 }
+# ── LAMBDA: Nightly PokéAPI sync ──────────────────────────────────────────
+data "archive_file" "pokemon_sync" {
+  type        = "zip"
+  source_dir  = "${path.module}/../lambda/pokemon-sync"
+  output_path = "/tmp/pokemon-sync.zip"
+}
+
+resource "aws_security_group" "lambda" {
+  name   = "pokeshop-lambda-sg"
+  vpc_id = module.vpc.vpc_id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_iam_role" "lambda" {
+  name = "pokeshop-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_basic" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_secrets" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+}
+
+resource "aws_lambda_function" "pokemon_sync" {
+  filename         = data.archive_file.pokemon_sync.output_path
+  function_name    = "pokeshop-pokemon-sync"
+  role             = aws_iam_role.lambda.arn
+  handler          = "handler.handler"
+  runtime          = "python3.12"
+  timeout          = 300
+  source_code_hash = data.archive_file.pokemon_sync.output_base64sha256
+
+  environment {
+    variables = {
+      AWS_DEFAULT_REGION = "us-east-2"
+    }
+  }
+
+  vpc_config {
+    subnet_ids         = module.vpc.private_subnet_ids
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_iam_role_policy_attachment.lambda_secrets,
+  ]
+}
+
+# IAM role for EventBridge Scheduler to invoke Lambda
+resource "aws_iam_role" "scheduler" {
+  name = "pokeshop-scheduler-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "scheduler_lambda" {
+  role       = aws_iam_role.scheduler.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
+}
+
+# Run nightly at 2 AM UTC
+resource "aws_scheduler_schedule" "pokemon_sync" {
+  name = "pokeshop-pokemon-sync-nightly"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression = "cron(0 2 * * ? *)"
+
+  target {
+    arn      = aws_lambda_function.pokemon_sync.arn
+    role_arn = aws_iam_role.scheduler.arn
+  }
+}
