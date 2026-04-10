@@ -2,14 +2,14 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: 'auth-service'
-    static_configs:
-      - targets: ['auth-service:3001']
+- job_name: 'auth-service'
+  static_configs:
+  - targets: ['auth-service:3001']
 
-  - job_name: 'pokemon-service'
-    static_configs:
-      - targets: ['pokemon-service:3002']
+- job_name: 'pokemon-service'
+  static_configs:
+  - targets: ['pokemon-service:3002']
 
-  - job_name: 'favorites-service'
-    static_configs:
-      - targets: ['favorites-service:3003']
+- job_name: 'favorites-service'
+  static_configs:
+  - targets: ['favorites-service:3003']

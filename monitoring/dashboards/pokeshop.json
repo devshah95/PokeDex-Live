@@ -1,0 +1,52 @@
+{
+  "title": "PokéDex Live — Application Metrics",
+  "uid": "pokeshop-main",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "title": "Request Rate per Service",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "rate(http_requests_total[5m])",
+        "legendFormat": "{{job}}"
+      }]
+    },
+    {
+      "title": "Redis Cache Hit Ratio (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{
+        "expr": "rate(pokemon_cache_hits_total[5m]) / (rate(pokemon_cache_hits_total[5m]) + rate(pokemon_cache_misses_total[5m])) * 100",
+        "legendFormat": "cache hit %"
+      }]
+    },
+    {
+      "title": "HTTP Error Rate (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{
+        "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m]) * 100",
+        "legendFormat": "error rate %"
+      }]
+    },
+    {
+      "title": "Pod Count per Namespace",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{
+        "expr": "kube_deployment_status_replicas_available",
+        "legendFormat": "{{namespace}}/{{deployment}}"
+      }]
+    },
+    {
+      "title": "P95 Response Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+        "legendFormat": "p95 {{job}}"
+      }]
+    }
+  ]
+}

@@ -158,5 +158,5 @@ argocd app list
 # STATUS and HEALTH will be blank — expected, manifests don't exist yet
 
 echo ""
-echo "=== Phase 17 complete ==="
+echo "=== Phases 17-26 complete ==="
 echo "Next: Phase 18 — Gateway API"

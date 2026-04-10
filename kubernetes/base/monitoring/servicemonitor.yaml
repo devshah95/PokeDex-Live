@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pokeshop-services
+  namespace: monitoring
+  labels:
+    # Must match the Helm release name so Prometheus discovers it
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+    - pokeshop-dev
+    - pokeshop-prod
+  selector:
+    matchExpressions:
+    - key: app
+      operator: In
+      values:
+      - auth-service
+      - pokemon-service
+      - favorites-service
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
