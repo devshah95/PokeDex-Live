@@ -1,0 +1,75 @@
+name: Deploy — Dev (ArgoCD GitOps)
+
+on:
+  push:
+    branches: [develop]
+    paths-ignore:
+    - 'infrastructure/**'
+    - '*.md'
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com
+
+jobs:
+  update-dev-image-tags:
+    name: Update Image Tags → ArgoCD Syncs
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure AWS via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.ACTIONS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install kustomize
+      run: |
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+
+    # Update image tags in dev overlay — ArgoCD detects this commit and syncs
+    - name: Update image tags in kubernetes/overlays/dev
+      run: |
+        TAG="${{ github.sha }}"
+        cd kubernetes/overlays/dev
+        kustomize edit set image \
+          "${{ env.ECR_REGISTRY }}/pokeshop-auth-service:${TAG}" \
+          "${{ env.ECR_REGISTRY }}/pokeshop-pokemon-service:${TAG}" \
+          "${{ env.ECR_REGISTRY }}/pokeshop-favorites-service:${TAG}" \
+          "${{ env.ECR_REGISTRY }}/pokeshop-frontend:${TAG}"
+
+    - name: Commit and push image tag updates
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add kubernetes/overlays/dev/kustomization.yaml
+        git commit -m "chore(dev): update image tags to ${{ github.sha }}" || exit 0
+        git push
+
+    # Wait for ArgoCD to sync the new images
+    - name: Wait for ArgoCD to sync pokeshop-dev
+      run: |
+        argocd app wait pokeshop-dev \
+          --server ${{ secrets.ARGOCD_SERVER }} \
+          --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} \
+          --timeout 300 \
+          --sync \
+          --health \
+          --insecure
+
+    - name: Smoke test — dev environment
+      run: bash scripts/health-check.sh dev
+
+    - name: Slack notification
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: "Dev deploy ${{ job.status }} → pokeshop-dev | ${{ github.sha }}"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,78 @@
+name: Deploy — Prod (ArgoCD GitOps)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+    - 'infrastructure/**'
+    - '*.md'
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com
+
+jobs:
+  update-prod-image-tags:
+    name: Update Prod Image Tags
+    runs-on: ubuntu-latest
+    # production environment has Required Reviewers set —
+    # pipeline pauses here and waits for manual approval before continuing
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure AWS via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.ACTIONS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install kustomize
+      run: |
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+
+    - name: Update image tags in kubernetes/overlays/prod
+      run: |
+        TAG="${{ github.sha }}"
+        cd kubernetes/overlays/prod
+        kustomize edit set image \
+          "${{ env.ECR_REGISTRY }}/pokeshop-auth-service:${TAG}" \
+          "${{ env.ECR_REGISTRY }}/pokeshop-pokemon-service:${TAG}" \
+          "${{ env.ECR_REGISTRY }}/pokeshop-favorites-service:${TAG}" \
+          "${{ env.ECR_REGISTRY }}/pokeshop-frontend:${TAG}"
+
+    - name: Commit and push
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add kubernetes/overlays/prod/kustomization.yaml
+        git commit -m "chore(prod): update image tags to ${{ github.sha }}" || exit 0
+        git push
+
+    - name: Trigger ArgoCD sync for prod
+      run: |
+        argocd app sync pokeshop-prod \
+          --server ${{ secrets.ARGOCD_SERVER }} \
+          --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} \
+          --insecure
+        argocd app wait pokeshop-prod \
+          --server ${{ secrets.ARGOCD_SERVER }} \
+          --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} \
+          --timeout 300 \
+          --health \
+          --insecure
+
+    - name: Smoke test — prod
+      run: bash scripts/health-check.sh prod
+
+    - name: Slack — prod deploy complete
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: "🚀 PROD deploy ${{ job.status }} → devopswithdev.com | ${{ github.sha }}"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
